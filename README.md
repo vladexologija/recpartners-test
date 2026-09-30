@@ -22,13 +22,11 @@ The two real clips are from Pexels ([one](https://www.pexels.com/video/man-enjoy
 ## Where to read
 
 - [`NOTES.md`](NOTES.md): the architecture and why, the sampling rate, a 2-hour video, what is left out
-- [`docs/design.md`](docs/design.md), Part 0: the decision log, with the alternatives considered
 - [`worker/app/process.py`](worker/app/process.py): one job, from download to the `done` event
 - [`api/app/handlers.py`](api/app/handlers.py) and [`api/app/crud.py`](api/app/crud.py): the Pub/Sub handlers and the status-guarded writes that make redelivery safe
 - [`api/app/api/routes/videos.py`](api/app/api/routes/videos.py): the upload, Reprocess and the live event stream
 - [`web/src/features/video/Player.tsx`](web/src/features/video/Player.tsx) and [`overlay.ts`](web/src/features/video/overlay.ts): the box overlay and its timing
 - [`infra/`](infra/): the whole platform in Terraform
-- [`docs/requirements.md`](docs/requirements.md): each requirement and the tests that cover it
 
 ## Architecture
 
@@ -44,28 +42,37 @@ Pub/Sub carries every hop, so Cloud Run scales the worker with the queue and not
 
 ## Set it up yourself (from a clean machine)
 
-You don't need this to review: the live deployment above is the way to run it. These steps build the same deployment in your own Google Cloud project, in about 30 minutes. The author ran them from macOS on 2026-09-30 to create `hotdog-takehome-6293`; they have not yet been rehearsed in a fresh project.
+You don't need this to review: the live deployment above is the way to run it. These steps build the same deployment in your own Google Cloud project, in about 30 minutes. They are written for a Mac with Apple Silicon.
 
 You need a Google account with a billing account. The images are built in Cloud Build, so no Docker, Python or Node is needed on your machine.
 
-**1. Install the tools.** On macOS, with [Homebrew](https://brew.sh) (its installer also brings `git` and `make`):
+**1. Install the tools.** On macOS, with [Homebrew](https://brew.sh) (its installer also brings `git` and `make`). The two lines after the installer put `brew` on the PATH, as its "Next steps" ask; skip them on an Intel Mac.
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+eval "$(/opt/homebrew/bin/brew shellenv)"
 brew install --cask gcloud-cli
 brew tap hashicorp/tap && brew install hashicorp/tap/terraform
 ```
 
 On Linux: `sudo apt-get install -y git make`, then the [gcloud CLI](https://cloud.google.com/sdk/docs/install) and [Terraform](https://developer.hashicorp.com/terraform/install) from their official instructions. Terraform must be 1.11 or later.
 
-**2. Sign in.** Each command opens a browser. The second one gives Terraform its credentials.
+**2. Get the code.** Clone it with git; a downloaded ZIP won't do, because `make release` tags the images with the commit.
+
+```bash
+git clone https://github.com/vladexologija/recpartners-test.git
+cd recpartners-test
+```
+
+**3. Sign in.** Each command opens a browser. The second one gives Terraform its credentials.
 
 ```bash
 gcloud auth login
 gcloud auth application-default login
 ```
 
-**3. Create a project and link it to your billing account.** Run these from the repository's root; the later steps use `$PROJECT`, so stay in the same terminal.
+**4. Create a project and link it to your billing account.** The later steps use `$PROJECT`, so stay in the same terminal.
 
 ```bash
 export PROJECT=hotdog-$RANDOM
@@ -74,15 +81,18 @@ gcloud billing accounts list          # copy the ACCOUNT_ID of an open account
 gcloud billing projects link $PROJECT --billing-account=ACCOUNT_ID
 ```
 
-**4. Configure.** This names the project and the region, and keeps one worker warm (about $1.30 a day). `make release` commits a file, so git needs a name if it has none yet.
+**5. Configure.** This names the project and the region, and keeps one worker warm (about $1.30 a day). `make release` commits a file, so git needs a name if it has none yet.
+
+The last line empties `infra/image.auto.tfvars`. It names the live deployment's images, which are in a registry your project can't read, so your project needs its own: with the file empty, `make infra` creates everything except the services, and `make release` builds your images into your project's registry.
 
 ```bash
 printf 'project_id = "%s"\nregion     = "europe-west1"\nworker_min_instances = 1\n' $PROJECT > infra/terraform.tfvars
 git config user.name >/dev/null || git config --global user.name "Your Name"
 git config user.email >/dev/null || git config --global user.email "you@example.com"
+printf '' > infra/image.auto.tfvars && git commit -qm "No images yet" infra/image.auto.tfvars
 ```
 
-**5. Deploy.** Answer `yes` when Terraform asks.
+**6. Deploy.** Answer `yes` when Terraform asks.
 
 ```bash
 make bootstrap   # about 2 min: the APIs, the Terraform state bucket, terraform init, a $50 budget alert
@@ -91,11 +101,12 @@ make release     # about 10 min: builds both images, runs the migrations, deploy
 terraform -chdir=infra output -raw url   # the app's address
 ```
 
+- **On Linux or an Intel Mac,** `make release` stops with "Commit first". `make bootstrap` added your platform's checksums to `infra/.terraform.lock.hcl`, which only has Apple Silicon's. Commit them with `git commit -m "Provider checksums" infra/.terraform.lock.hcl`, then run `make release` again.
 - **The budget alert** is `make bootstrap`'s last step. It needs permission to manage budgets on the billing account. If it fails, everything before it is done, and you can go on without it.
 - **The first job may wait a few minutes.** Pub/Sub's first deliveries to the worker get 403 until the worker's new invoker permission takes effect. Pub/Sub retries, so nothing is lost.
 - **Organization policies apply** if your project sits in an organization. Domain-restricted sharing is fine: the app turns off Cloud Run's invoker check instead of granting `allUsers`. A policy that forbids public IPs on Cloud SQL stops `make infra`.
 
-**6. Tear it down** when you're done. Deleting the project removes everything in it:
+**7. Tear it down** when you're done. Deleting the project removes everything in it:
 
 ```bash
 gcloud projects delete $PROJECT
@@ -110,7 +121,7 @@ make db              # Postgres 17 in Docker on port 5433, migrated (for fastapi
 cd web && pnpm dev:mock   # the app against an in-memory stand-in for the API
 ```
 
-The API's tests start Postgres with testcontainers (Docker). Without Docker, point them at an empty database kept for them: `HOTDOG_TEST_DATABASE_URL=postgresql+psycopg://user@localhost:5434/test uv run pytest`. There is no local run of the whole pipeline yet: the Pub/Sub and GCS emulators are designed ([`docs/design.md`](docs/design.md) D14) but not wired up.
+The API's tests start Postgres with testcontainers (Docker). Without Docker, point them at an empty database kept for them: `HOTDOG_TEST_DATABASE_URL=postgresql+psycopg://user@localhost:5434/test uv run pytest`.
 
 ## Tests
 
