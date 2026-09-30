@@ -1,0 +1,15 @@
+# Both images for `make release` (D11). A build config, not CI: nothing triggers it.
+steps:
+  - id: web
+    name: gcr.io/cloud-builders/docker
+    args: [build, --file, api/Dockerfile, --tag, "${_REPO}/web:${_TAG}", .]
+    waitFor: ["-"]
+  - id: worker
+    name: gcr.io/cloud-builders/docker
+    args: [build, --tag, "${_REPO}/worker:${_TAG}", worker]
+    waitFor: ["-"]
+images:
+  - "${_REPO}/web:${_TAG}"
+  - "${_REPO}/worker:${_TAG}"
+options:
+  logging: CLOUD_LOGGING_ONLY # the build runs as hotdog-build, which has no logs bucket

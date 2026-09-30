@@ -1,0 +1,6 @@
+# Copy to infra/terraform.tfvars (gitignored). The Makefile reads the project and region from it.
+project_id = "your-project-id"
+region     = "europe-west1"
+
+# Keep one worker warm while reviewers try it (about $1.30/day); `make pause` sets it back to 0.
+worker_min_instances = 1

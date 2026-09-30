@@ -1,0 +1,21 @@
+{
+  "analysis_id": "6f1c2b7e-4d0a-4b8e-9a51-3c2d7e8f9a10",
+  "type": "done",
+  "frames_sampled": 25,
+  "duration_s": 12.5,
+  "width": 1920,
+  "height": 1080,
+  "codec": "h264",
+  "detections": [
+    {
+      "sample_idx": 3,
+      "det_rank": 0,
+      "t_seconds": 1.5,
+      "confidence": 0.91,
+      "x1": 0.12,
+      "y1": 0.3,
+      "x2": 0.45,
+      "y2": 0.62
+    }
+  ]
+}
